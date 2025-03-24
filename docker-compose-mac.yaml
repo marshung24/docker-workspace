@@ -1,0 +1,184 @@
+##################################################
+# LNMP伺服器群組設定
+#
+# Platform: Apple Silicon Mac (M1/M2/M3...)
+#
+# - 伺服器： Nginx, PHP7.4, MySQL5.7, Redis, PHPMyAdmin, PHPRedisAdmin
+#   - 主程式: http://localhost
+#   - Adminer: http://localhost:8080
+#   - PHPMyAdmin: http://localhost:8081
+#   - Redisinsight: http://localhost:5540
+#   - PHPRedisAdmin: http://localhost:8082
+# - 使用 .env 環境變數檔
+#   - 可調整 程式碼路徑 CODE_PATH 變數，以變更連結的程式碼路徑
+#
+##################################################
+
+# Docker Compose版本
+version: "3"
+
+# 伺服器設定
+services:
+  # Nginx伺服器
+  nginx_dev:
+    # 容器名稱
+    container_name: "nginx_dev"
+    # 基底映像檔
+    image: "nginx:latest"
+    # 參數-重開，永遠重開
+    # restart: unless-stopped
+    # 埠號對映
+    ports:
+      - "80:80"
+    # 磁區對映
+    volumes:
+      - "./:/srv/app:ro"
+      - "./docker/nginx/nginx.conf:/etc/nginx/conf.d/default.conf"
+      - "./docker/nginx/site.conf:/etc/nginx/conf.d/site.conf"
+    # 網路設定
+    networks:
+      - server
+    # 依賴設定
+    depends_on:
+      - php_dev
+
+  # PHP-FPM伺服器
+  php_dev:
+    # 容器名稱
+    container_name: "php_dev"
+    # 基底映像檔
+    image: "php_dev"
+    # 編譯路徑
+    build: .
+    # 參數-重開，永遠重開
+    restart: unless-stopped
+    # 埠號開放
+    expose:
+      - "9000"
+    # 磁區對映
+    volumes:
+      # 掛載程式
+      - "./:/srv/app"
+      # 繼承Host主機帳號的SSH Key設定
+      - "~/.ssh:/root/.ssh:ro"
+      # 繼承Host主機帳號的git設定
+      - "~/.gitconfig:/root/.gitconfig:ro"
+    # 網路設定
+    networks:
+      - database
+      - server
+    # 依賴設定
+    depends_on:
+      - mysql_dev
+
+  # MySQL伺服器設定
+  mysql_dev:
+    container_name: mysql_dev
+    image: mysql/mysql-server:5.7
+    # image: "mysql:5.7.36"
+    platform: linux/amd64  # 避免架構不匹配的問題 Mac (M1/M2/M3...)，Windows請註解掉
+    # restart: unless-stopped
+    # 埠號開放
+    expose:
+      - "3306"
+    ports:
+      - "3306:3306"
+    volumes:
+      - "sql_data:/var/lib/mysql"
+      - "./docker/mysql/my.cnf:/etc/my.cnf"
+    # 環境變數設定 - 從.env檔案讀取
+    environment:
+      MYSQL_ROOT_PASSWORD: "root"
+      MYSQL_DATABASE: "dev"
+      MYSQL_USER: "dev"
+      MYSQL_PASSWORD: "dev"
+      MYSQL_ROOT_HOST: "%"
+    networks:
+      - database
+
+  # Adminer伺服器建構
+  adminer_dev:
+    container_name: adminer_dev
+    image: adminer
+    ports:
+      - "8080:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: mysql_dev
+    networks:
+      - database
+    depends_on:
+      - mysql_dev
+
+  # PhpMyAdmin伺服器建構
+  phpmyadmin_dev:
+    container_name: phpmyadmin_dev
+    image: "phpmyadmin/phpmyadmin"
+    platform: linux/amd64  # 避免架構不匹配的問題 Mac (M1/M2/M3...)，Windows請註解掉
+    ports:
+      - "8081:80"
+    volumes:
+      - "./docker/phpmyadmin/config.user.inc.php:/etc/phpmyadmin/config.user.inc.php"
+    environment:
+      PMA_HOST: mysql_dev
+      PMA_CONFIG: "/etc/phpmyadmin/config.user.inc.php"
+    networks:
+      - database
+    depends_on:
+      - mysql_dev
+
+  # Redis伺服器建構
+  redis_dev:
+    container_name: redis_dev
+    image: "redis:latest"
+    # restart: unless-stopped
+    expose:
+      - "6379"
+    ports:
+      - "6379:6379"
+    volumes:
+      - "redis_data:/data"
+    command: "redis-server --appendonly yes "
+    networks:
+      - database
+
+  # RedisInsight 伺服器
+  redisinsight_dev:
+    container_name: redisinsight_dev
+    image: redislabs/redisinsight:latest
+    # restart: unless-stopped
+    ports:
+      - "5540:5540"  # 將 RedisInsight 的 Web UI 暴露到本機
+    volumes:
+      - redisinsight_data:/db
+    networks:
+      - database
+    depends_on:
+      - redis_dev  # 確保 Redis 先啟動
+
+  # PhpRedisAdmin伺服器建構
+  phpredisadmin_dev:
+    container_name: phpredisadmi_dev
+    image: "erikdubbelboer/phpredisadmin"
+    expose:
+      - "80"
+    ports:
+      - "8082:80"
+    environment:
+      REDIS_1_HOST: redis_dev
+      REDIS_1_NAME: redis_dev
+    networks:
+      - database
+    depends_on:
+      - redis_dev
+
+
+# Volumn設定
+volumes:
+  sql_data:
+  redisinsight_data:
+  redis_data:
+
+# Network設定
+networks:
+  database:
+  server:
