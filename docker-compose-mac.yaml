@@ -32,7 +32,7 @@ services:
       - "80:80"
     # 磁區對映
     volumes:
-      - "./:/srv/app:ro"
+      - "web_data:/srv/app:ro"
       - "./docker/nginx/nginx.conf:/etc/nginx/conf.d/default.conf"
       - "./docker/nginx/site.conf:/etc/nginx/conf.d/site.conf"
     # 網路設定
@@ -58,7 +58,7 @@ services:
     # 磁區對映
     volumes:
       # 掛載程式
-      - "./:/srv/app"
+      - "web_data:/srv/app"
       # 繼承Host主機帳號的SSH Key設定
       - "~/.ssh:/root/.ssh:ro"
       # 繼承Host主機帳號的git設定
@@ -70,6 +70,35 @@ services:
     # 依賴設定
     depends_on:
       - mysql_dev
+
+  # 初始化程式碼
+  init-cloner:
+    # 容器名稱
+    container_name: "init-cloner"
+    # 基底映像檔-有git跟ssh程式即可
+    image: "php:8.1-fpm-dev"
+    volumes:
+      # 掛載共用 Code Volume 至工作目錄
+      - "web_data:/srv/app"
+      # 掛載初始化程式碼Script
+      - "./docker/clone.sh:/usr/local/bin/clone.sh"
+      # 繼承Host主機帳號的SSH Key設定
+      - "~/.ssh:/root/.ssh:ro"
+      # 繼承Host主機帳號的git設定
+      - "~/.gitconfig:/root/.gitconfig:ro"
+    # 環境變數設定
+    environment:
+      # 目標程式碼庫
+      REPO_URL: "git@github.com:marshung24/docker-images.git"
+      # 目標分支
+      BRANCH: "main"
+      # 目標目錄
+      TARGET_DIR: "/srv/app/"
+    # 執行初始化程式碼
+    command: sh /usr/local/bin/clone.sh
+    # 工作目錄
+    working_dir: /srv/app
+    restart: "no"  # 執行完就停
 
   # MySQL伺服器設定
   mysql_dev:
@@ -174,6 +203,7 @@ services:
 
 # Volumn設定
 volumes:
+  web_data:
   sql_data:
   redisinsight_data:
   redis_data:
