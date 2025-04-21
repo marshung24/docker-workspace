@@ -1,17 +1,24 @@
 ##################################################
 # LNMP伺服器群組設定
 #
-# Platform: Apple Silicon Mac (M1/M2/M3...)
-#
-# - 伺服器： Nginx, PHP7.4, MySQL5.7, Redis, PHPMyAdmin, PHPRedisAdmin
-#   - 主程式: http://localhost
-#   - Adminer: http://localhost:8080
-#   - PHPMyAdmin: http://localhost:8081
-#   - Redisinsight: http://localhost:5540
-#   - PHPRedisAdmin: http://localhost:8082
+# - 伺服器： Nginx, PHP, MySQL 8.4|5.7 (於.env中設定), Redis
+#   - 主程式:
+#     - http://localhost 需設定 docker/nginx/nginx.conf
+#   - 管理程式：
+#     - Adminer: http://localhost:8080 , http://adminer.localtest.me
+#     - PHPMyAdmin: http://localhost:8081 , http://phpmyadmin.localtest.me
+#     - Redisinsight: http://localhost:5540 , http://redisinsight.localtest.me
+#     - PHPRedisAdmin: http://localhost:8082 , http://phpredisadmin.localtest.me
 # - 使用 .env 環境變數檔
-#   - 可調整 程式碼路徑 CODE_PATH 變數，以變更連結的程式碼路徑
-#
+#   - 可調整 COMPOSE_PROJECT_NAME 變數，以指定專案名稱
+#     - 當有多個 docker compose 中的容器需要使用相同的 Network, Volume，需在同一個專案中
+# - 初始化程式碼 init_cloner
+#   - (2025年) MacOS VirtioFS 優化Volume映射延遲後，io速度接近 Linux/Windows 的 60%/70%
+#   - 以下狀況如遇到問題，建議在容器內拉取專案後，在容器內開發
+#     - 大量小檔案：npm / yarn / composer
+#     - Hot Reload / Live Reload / HMR
+#     - Cache / Log / compile / Swoole
+# 
 ##################################################
 
 # Docker Compose版本
@@ -26,10 +33,11 @@ services:
     # 基底映像檔
     image: "nginx:latest"
     # 參數-重開，永遠重開
-    # restart: unless-stopped
+    restart: unless-stopped
     # 埠號對映
     ports:
       - "80:80"
+      - "443:443"
     # 磁區對映
     volumes:
       - "web_data:/srv/app:ro"
@@ -37,7 +45,7 @@ services:
       - "./docker/nginx/site.conf:/etc/nginx/conf.d/site.conf"
     # 網路設定
     networks:
-      - server
+      server:
     # 依賴設定
     depends_on:
       - php_dev
@@ -59,22 +67,22 @@ services:
     volumes:
       # 掛載程式
       - "web_data:/srv/app"
-      # 繼承Host主機帳號的SSH Key設定
+      # 繼承Host主機帳號的SSH Key設定-唯讀
       - "~/.ssh:/root/.ssh:ro"
-      # 繼承Host主機帳號的git設定
+      # 繼承Host主機帳號的git設定-唯讀
       - "~/.gitconfig:/root/.gitconfig:ro"
     # 網路設定
     networks:
-      - database
-      - server
+      database:
+      server:
     # 依賴設定
     depends_on:
       - mysql_dev
 
   # 初始化程式碼
-  init-cloner:
+  init_cloner:
     # 容器名稱
-    container_name: "init-cloner"
+    container_name: "init_cloner"
     # 基底映像檔-有git跟ssh程式即可
     image: "php:8.1-fpm-dev"
     volumes:
@@ -82,18 +90,18 @@ services:
       - "web_data:/srv/app"
       # 掛載初始化程式碼Script
       - "./docker/clone.sh:/usr/local/bin/clone.sh"
-      # 繼承Host主機帳號的SSH Key設定
+      # 繼承Host主機帳號的SSH Key設定-唯讀
       - "~/.ssh:/root/.ssh:ro"
-      # 繼承Host主機帳號的git設定
+      # 繼承Host主機帳號的git設定-唯讀
       - "~/.gitconfig:/root/.gitconfig:ro"
     # 環境變數設定
     environment:
       # 目標程式碼庫
-      REPO_URL: "git@github.com:marshung24/docker-images.git"
+      REPO_URL: ${INIT_CLONER_REPO_URL}
       # 目標分支
-      BRANCH: "main"
+      BRANCH: ${INIT_CLONER_BRANCH}
       # 目標目錄
-      TARGET_DIR: "/srv/app/"
+      TARGET_DIR: ${INIT_CLONER_TARGET_DIR}
     # 執行初始化程式碼
     command: sh /usr/local/bin/clone.sh
     # 工作目錄
@@ -103,10 +111,8 @@ services:
   # MySQL伺服器設定
   mysql_dev:
     container_name: mysql_dev
-    image: mysql/mysql-server:5.7
-    # image: "mysql:5.7.36"
-    platform: linux/amd64  # 避免架構不匹配的問題 Mac (M1/M2/M3...)，Windows請註解掉
-    # restart: unless-stopped
+    image: ${MYSQL_VERSION}
+    restart: unless-stopped
     # 埠號開放
     expose:
       - "3306"
@@ -117,13 +123,12 @@ services:
       - "./docker/mysql/my.cnf:/etc/my.cnf"
     # 環境變數設定 - 從.env檔案讀取
     environment:
-      MYSQL_ROOT_PASSWORD: "root"
-      MYSQL_DATABASE: "dev"
-      MYSQL_USER: "dev"
-      MYSQL_PASSWORD: "dev"
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PWD}
       MYSQL_ROOT_HOST: "%"
     networks:
-      - database
+      database:
+        aliases:
+          - mysql.localtest.me    # 別名，讓Docker內外部網路名稱一樣
 
   # Adminer伺服器建構
   adminer_dev:
@@ -134,7 +139,9 @@ services:
     environment:
       ADMINER_DEFAULT_SERVER: mysql_dev
     networks:
-      - database
+      database:
+        aliases:
+          - adminer.localtest.me    # 別名，讓Docker內外部網路名稱一樣
     depends_on:
       - mysql_dev
 
@@ -142,7 +149,6 @@ services:
   phpmyadmin_dev:
     container_name: phpmyadmin_dev
     image: "phpmyadmin/phpmyadmin"
-    platform: linux/amd64  # 避免架構不匹配的問題 Mac (M1/M2/M3...)，Windows請註解掉
     ports:
       - "8081:80"
     volumes:
@@ -151,7 +157,9 @@ services:
       PMA_HOST: mysql_dev
       PMA_CONFIG: "/etc/phpmyadmin/config.user.inc.php"
     networks:
-      - database
+      database:
+        aliases:
+          - phpmyadmin.localtest.me    # 別名，讓Docker內外部網路名稱一樣
     depends_on:
       - mysql_dev
 
@@ -159,7 +167,7 @@ services:
   redis_dev:
     container_name: redis_dev
     image: "redis:latest"
-    # restart: unless-stopped
+    restart: unless-stopped
     expose:
       - "6379"
     ports:
@@ -168,19 +176,23 @@ services:
       - "redis_data:/data"
     command: "redis-server --appendonly yes "
     networks:
-      - database
+      database:
+        aliases:
+          - redis.localtest.me    # 別名，讓Docker內外部網路名稱一樣
 
   # RedisInsight 伺服器
   redisinsight_dev:
     container_name: redisinsight_dev
     image: redislabs/redisinsight:latest
-    # restart: unless-stopped
+    restart: unless-stopped
     ports:
       - "5540:5540"  # 將 RedisInsight 的 Web UI 暴露到本機
     volumes:
       - redisinsight_data:/db
     networks:
-      - database
+      database:
+        aliases:
+          - redisinsight.localtest.me    # 別名，讓Docker內外部網路名稱一樣
     depends_on:
       - redis_dev  # 確保 Redis 先啟動
 
@@ -196,7 +208,9 @@ services:
       REDIS_1_HOST: redis_dev
       REDIS_1_NAME: redis_dev
     networks:
-      - database
+      database:
+        aliases:
+          - phpredisadmin.localtest.me    # 別名，讓Docker內外部網路名稱一樣
     depends_on:
       - redis_dev
 
@@ -210,5 +224,9 @@ volumes:
 
 # Network設定
 networks:
-  database:
   server:
+    driver: bridge
+  database:
+    driver: bridge
+  redis:
+    driver: bridge
