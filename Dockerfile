@@ -19,12 +19,14 @@ RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/bin/ 
 
 # PHP ini default
 ENV PHP_EXPOSE_PHP=Off
-ENV PHP_DATE_TIMEZONE=Asia/Taipei
 ENV PHP_MEMORY_LIMIT=256M
 ENV PHP_POST_MAX_SIZE=20M
 ENV PHP_UPLOAD_MAX_FILESIZE=10M
 ENV PHP_MAX_FILE_UPLOADS=20
 ENV PHP_MAX_INPUT_VARS=5000
+ENV PHP_MAX_EXECUTION_TIME=30
+ENV PHP_DISPLAY_ERRORS=1
+ENV PHP_DATE_TIMEZONE=Asia/Taipei
 ENV PHP_SESSION_SAVE_HANDLER=files
 ENV PHP_SESSION_SAVE_PATH=/var/lib/php/sessions
 ENV PHP_SESSION_COOKIE_HTTPONLY=1
@@ -35,6 +37,7 @@ ENV PHP_OPCACHE_ENABLE_CLI=1
 ENV PHP_OPCACHE_JIT=tracing
 ENV PHP_OPCACHE_JIT_BUFFER_SIZE=256M
 ENV PHP_OPCACHE_MEMORY_CONSUMPTION=128
+ENV PHP_OPCACHE_INTERNED=8
 ENV PHP_OPCACHE_MAX_ACCELERATED_FILES=10000
 ENV PHP_OPCACHE_REVALIDATE_FREQUENCY=0
 ENV PHP_OPCACHE_VALIDATE_TIMESTAMPS=0
@@ -51,10 +54,10 @@ ENV PHP_FPM_MAX_REQUESTS=1000
 RUN mv "${PHP_INI_DIR}/php.ini-development" "${PHP_INI_DIR}/php.ini"
 
 # Copy the Default configuration file
-COPY docker/php/conf.d/php.ini "${PHP_INI_DIR}/conf.d/php.ini"
+COPY docker/php/conf.d/php.ini "${PHP_INI_DIR}/conf.d/99-php-overwrite.ini"
 
 # Copy the OPcache configuration file
-COPY docker/php/conf.d/opcache.ini "${PHP_INI_DIR}/conf.d/opcache.ini"
+COPY docker/php/conf.d/opcache.ini "${PHP_INI_DIR}/conf.d/98-opcache.ini"
 
 # Copy the PHP-FPM configuration file
 COPY docker/php/php-fpm.d/www.conf /usr/local/etc/php-fpm.d/www.conf
